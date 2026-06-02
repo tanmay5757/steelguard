@@ -4,7 +4,7 @@ import os
 import random
 import cv2
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 from config import DATA_PATH, IMG_H, IMG_W
 
 def rle_decode(mask_rle, shape=(256, 1600)):
@@ -87,3 +87,26 @@ class SteelSegDataset(Dataset):
         return img, mask.unsqueeze(0).float()
 
 
+class BalancedSampler(Sampler):
+    """
+    Each batch contains exactly `defect_ratio` fraction of defective images.
+    Prevents the model from coasting on clean-image majority.
+    """
+    def __init__(self, dataset, batch_size, defect_ratio=0.5):
+        self.defect_idx  = dataset.defect_indices
+        self.clean_idx   = dataset.clean_indices
+        self.batch_size  = batch_size
+        self.n_defect    = int(batch_size * defect_ratio)
+        self.n_clean     = batch_size - self.n_defect
+        self.n_batches   = len(dataset) // batch_size
+
+    def __iter__(self):
+        for _ in range(self.n_batches):
+            d = random.choices(self.defect_idx, k=self.n_defect)
+            c = random.choices(self.clean_idx, k=self.n_clean)
+            batch = d + c
+            random.shuffle(batch)
+            yield from batch
+
+    def __len__(self):
+        return self.n_batches * self.batch_size
